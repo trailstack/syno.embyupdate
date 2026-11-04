@@ -130,23 +130,23 @@ fi
 # GET EPOCH TIMESTAMP FOR AGE CHECKS
 TodaysDate=$(date +%s)
 
-# SCRAPE GITHUB WEBSITE FOR LATEST SCRIPT INFO
+# SCRAPE GITHUB FOR LATEST SCRIPT INFO
 GitHubRepo=trailstack/syno.embyupdate
-GitHubHtml=$(curl -i -m "$NetTimeout" -Ls https://api.github.com/repos/$GitHubRepo/releases?per_page=1)
-if [ "$?" -eq "0" ]; then
-  GitHubJson=$(grep -oPz '\{\s{0,6}\"\X*\s{0,4}\}'          < <(printf '%s' "$GitHubHtml") | tr -d '\0')
-  GitHubJson=$'[\n'"$GitHubJson"$'\n]'
-  GitHubHtml=$(grep -oPz '\X*\{\W{0,6}\"'                   < <(printf '%s' "$GitHubHtml")  | tr -d '\0' | sed -z 's/\W\[.*//')
-  SeusApiRlm=$(grep -oP '^x-ratelimit-limit: \K[\d]+'       < <(printf '%s' "$GitHubHtml"))
-  SeusApiRlr=$(grep -oP '^x-ratelimit-remaining: \K[\d]+'   < <(printf '%s' "$GitHubHtml"))
-  SeusApiMsg=$(jq -r '.[].message'                          < <(printf '%s' "$GitHubJson"))
-  SeusNewVer=$(jq -r '.[].tag_name'                         < <(printf '%s' "$GitHubJson"))
-  SeusNewVer=${SeusNewVer#v}
-  SeusRlDate=$(jq -r '.[].published_at'                     < <(printf '%s' "$GitHubJson"))
+GitHubRawJson=$(curl -s -w '\n%{http_code}' -m "$NetTimeout" \
+  "https://api.github.com/repos/$GitHubRepo/releases/latest")
+GitHubHttpCode=$(echo "$GitHubRawJson" | tail -1)
+GitHubJson=$(echo "$GitHubRawJson" | sed '$d')
+if [ "$GitHubHttpCode" = "200" ]; then
+  GitHubHeaders=$(curl -s -I -m "$NetTimeout" "https://api.github.com/repos/$GitHubRepo/releases/latest")
+  SeusApiRlm=$(echo "$GitHubHeaders" | grep -i '^x-ratelimit-limit:' | awk '{print $2}' | tr -d '[:space:]')
+  SeusApiRlr=$(echo "$GitHubHeaders" | grep -i '^x-ratelimit-remaining:' | awk '{print $2}' | tr -d '[:space:]')
+  SeusApiMsg=$(printf '%s' "$GitHubJson" | jq -r '.message // "none"')
+  SeusNewVer=$(printf '%s' "$GitHubJson" | jq -r '.tag_name' | sed 's/^v//')
+  SeusRlDate=$(printf '%s' "$GitHubJson" | jq -r '.published_at')
   SeusRlDate=$(date --date "$SeusRlDate" +'%s')
   SeusRelAge=$(((TodaysDate-SeusRlDate)/86400))
   SeusDwnUrl=https://raw.githubusercontent.com/$GitHubRepo/v$SeusNewVer/syno.embyupdate.sh
-  SeusRelDes=$(jq -r '.[].body'                             < <(printf '%s' "$GitHubJson"))
+  SeusRelDes=$(printf '%s' "$GitHubJson" | jq -r '.body // ""')
   SeusHlpUrl=https://github.com/$GitHubRepo/issues
 else
   printf ' %s\n\n' "* UNABLE TO CHECK FOR LATEST VERSION OF SCRIPT.."
@@ -255,7 +255,7 @@ fi
 
 # SCRAPE CURRENTLY RUNNING EMBY VERSION
 RunVersion=$(/usr/syno/bin/synopkg version "EmbyServer")
-RunVersion=$(grep -oP '^.+?(?=\-)'                          < <(printf '%s' "$RunVersion"))
+RunVersion=$(echo "$RunVersion" | sed 's/-.*//')
 
 # MAP CPU ARCHITECTURE TO EMBY SPK SUFFIX
 # Emby publishes SPK packages with architecture-specific suffixes
@@ -291,33 +291,36 @@ else
   mkdir -p "$SrceFolder/Archive/Packages"
 fi
 
-# SCRAPE EMBY RELEASES FROM GITHUB
+# SCRAPE EMBY RELEASES FROM GITHUB (latest STABLE release only, no betas)
 EmbyRepo=MediaBrowser/Emby.Releases
-EmbyReleases=$(curl -i -m "$NetTimeout" -Ls https://api.github.com/repos/$EmbyRepo/releases?per_page=1)
-if [ "$?" -eq "0" ]; then
-  # PARSE THE JSON RESPONSE
-  EmbyJson=$(grep -oPz '\{\s{0,6}\"\X*\s{0,4}\}'          < <(printf '%s' "$EmbyReleases") | tr -d '\0')
-  EmbyJson=$'[\n'"$EmbyJson"$'\n]'
-  EmbyHtml=$(grep -oPz '\X*\{\W{0,6}\"'                   < <(printf '%s' "$EmbyReleases")  | tr -d '\0' | sed -z 's/\W\[.*//')
+# per_page=100 is plenty, then jq filters out prereleases and picks the newest stable
+EmbyRawJson=$(curl -s -w '\n%{http_code}' -m "$NetTimeout" \
+  "https://api.github.com/repos/$EmbyRepo/releases?per_page=100")
+EmbyHttpCode=$(echo "$EmbyRawJson" | tail -1)
+EmbyJson=$(echo "$EmbyRawJson" | sed '$d')
 
-  # SCRAPE API RATE LIMIT
-  EmbyApiRlm=$(grep -oP '^x-ratelimit-limit: \K[\d]+'       < <(printf '%s' "$EmbyHtml"))
-  EmbyApiRlr=$(grep -oP '^x-ratelimit-remaining: \K[\d]+'   < <(printf '%s' "$EmbyHtml"))
+if [ "$EmbyHttpCode" = "200" ]; then
+  # FILTER OUT PRERELEASES, PICK MOST RECENT STABLE
+  EmbyJson=$(printf '%s' "$EmbyJson" | jq '[.[] | select(.prerelease == false)] | sort_by(.published_at) | last')
+  # RATE LIMIT was already included in the HTTP response headers via curl -w
+  # Fetch rate limit from same endpoint (HEAD only, no body)
+  EmbyApiRlm=$(curl -s -I -m "$NetTimeout" "https://api.github.com/repos/$EmbyRepo/releases" \
+    | grep -i '^x-ratelimit-limit:' | awk '{print $2}' | tr -d '[:space:]')
+  EmbyApiRlr=$(curl -s -I -m "$NetTimeout" "https://api.github.com/repos/$EmbyRepo/releases" \
+    | grep -i '^x-ratelimit-remaining:' | awk '{print $2}' | tr -d '[:space:]')
 
-  # SCRAPE API MESSAGES
-  EmbyApiMsg=$(jq -r '.[].message'                          < <(printf '%s' "$EmbyJson"))
+  # SCRAPE API ERRORS
+  EmbyApiMsg=$(printf '%s' "$EmbyJson" | jq -r '.message // "none"')
 
   # SCRAPE VERSION AND RELEASE DATE
-  EmbyNewVer=$(jq -r '.[].tag_name'                         < <(printf '%s' "$EmbyJson"))
-  EmbyNewVer=${EmbyNewVer#v}
-  EmbyRlDate=$(jq -r '.[].published_at'                     < <(printf '%s' "$EmbyJson"))
-  EmbyRlDate=$(date --date "$EmbyRlDate" +'%s')
+  EmbyNewVer=$(printf '%s' "$EmbyJson" | jq -r '.tag_name' | sed 's/^v//')
+  EmbyRlDate=$(printf '%s' "$EmbyJson" | jq -r '.published_at')
+  EmbyRlDate=$(date --date "$EmbyRlDate" +'%s' 2>/dev/null || echo "0")
   EmbyRelAge=$(((TodaysDate-EmbyRlDate)/86400))
 
-  # FIND THE MATCHING SPK PACKAGE USING PREFIX + SUFFIX (like the gist inspiration)
-  EmbyDwnUrl=$(jq -r --arg prefix "$DSMEmbyPrefix" --arg suffix "$EmbyArchSuffix" \
-    '.assets[] | select(.name | startswith($prefix) and endswith($suffix)) | .browser_download_url' \
-    < <(printf '%s' "$EmbyJson"))
+  # FIND THE MATCHING SPK PACKAGE USING PREFIX + SUFFIX
+  EmbyDwnUrl=$(printf '%s' "$EmbyJson" | jq -r --arg prefix "$DSMEmbyPrefix" --arg suffix "$EmbyArchSuffix" \
+    '.assets[] | select(.name | startswith($prefix) and endswith($suffix)) | .browser_download_url')
 
   EmbyPackage="${EmbyDwnUrl##*/}"
 
