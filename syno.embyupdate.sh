@@ -381,7 +381,7 @@ if [ -n "$EmbyNewVer" ] && /usr/bin/dpkg --compare-versions "$EmbyNewVer" gt "$R
           end
         )'
       printf "\n%s\n" "Starting EmbyServer service (JSON):"
-      /usr/syno/bin/synopkg start   "EmbyServer"
+      /usr/syno/bin/synopkg restart "EmbyServer"
     else
       printf '\n %s\n' "* Package download failed, skipping install.."
     fi
