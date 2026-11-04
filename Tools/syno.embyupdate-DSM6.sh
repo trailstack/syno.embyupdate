@@ -27,7 +27,7 @@ exec > >(tee "$SrceFllPth.log") 2>"$SrceFllPth.debug"
 set -x
 
 # SCRIPT VERSION
-SeuscrpVer=1.0.0
+SeuscrpVer=1.0.2
 MinDSMVers=6.0
 # DSM 6.x uses the un-suffixed Emby SPK prefix
 DSMEmbyPrefix="emby-server-synology_"

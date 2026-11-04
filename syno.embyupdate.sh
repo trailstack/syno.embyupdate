@@ -24,7 +24,7 @@ exec > >(tee "$SrceFllPth.log") 2>"$SrceFllPth.debug"
 set -x
 
 # SCRIPT VERSION
-SeuscrpVer=1.0.0
+SeuscrpVer=1.0.2
 MinDSMVers=6.0
 # PRINT OUR GLORIOUS HEADER BECAUSE WE ARE FULL OF OURSELVES
 printf "\n"
