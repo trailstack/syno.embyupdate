@@ -24,7 +24,7 @@ exec > >(tee "$SrceFllPth.log") 2>"$SrceFllPth.debug"
 set -x
 
 # SCRIPT VERSION
-SeuscrpVer=1.0.2
+SeuscrpVer=1.0.3
 MinDSMVers=6.0
 # PRINT OUR GLORIOUS HEADER BECAUSE WE ARE FULL OF OURSELVES
 printf "\n"
@@ -363,6 +363,33 @@ if [ -n "$EmbyNewVer" ] && /usr/bin/dpkg --compare-versions "$EmbyNewVer" gt "$R
     fi
     /bin/wget -nv -c -nc -P "$SrceFolder/Archive/Packages/" "$EmbyDwnUrl" 2>&1
     if [ "$?" -eq "0" ]; then
+      # VERIFY SHA-256 CHECKSUM
+      EmbyShaUrl="${EmbyDwnUrl%.spk}.spk.sha256"
+      /bin/wget -nv -O "$SrceFolder/Archive/Packages/${EmbyPackage}.sha256" "$EmbyShaUrl" 2>&1
+      if [ "$?" -eq "0" ]; then
+        EmbyExpectedSha=$(awk '{print $1}' "$SrceFolder/Archive/Packages/${EmbyPackage}.sha256")
+        EmbyActualSha=$(sha256sum "$SrceFolder/Archive/Packages/$EmbyPackage" | awk '{print $1}')
+        if [ "$EmbyExpectedSha" = "$EmbyActualSha" ]; then
+          printf '%s\n' "* SHA-256 checksum verified"
+        else
+          printf '\n%s\n' "* SHA-256 checksum MISMATCH!"
+          printf '%16s %s\n' "Expected:" "$EmbyExpectedSha"
+          printf '%16s %s\n' "Actual:"   "$EmbyActualSha"
+          printf '\n%s\n' "* Package integrity check failed, skipping install.."
+          rm -f "$SrceFolder/Archive/Packages/$EmbyPackage" "$SrceFolder/Archive/Packages/${EmbyPackage}.sha256"
+          printf "\n"
+          exec >&- 2>&- 1>&2
+          /usr/syno/bin/synonotify PKGHasUpgrade '{"%PKG_HAS_UPDATE%": "Emby Server\n\nSyno.Emby Update task failed. Package checksum mismatch."}'
+          exit 1
+        fi
+      else
+        printf '\n%s\n' "* Failed to download SHA-256 checksum file - skipping install.."
+        printf "\n"
+        exec >&- 2>&- 1>&2
+        /usr/syno/bin/synonotify PKGHasUpgrade '{"%PKG_HAS_UPDATE%": "Emby Server\n\nSyno.Emby Update task failed. Checksum download failed."}'
+        exit 1
+      fi
+
       printf "\n%s\n"   "Stopping EmbyServer service (JSON):"
       /usr/syno/bin/synopkg stop    "EmbyServer"
       printf "\n%s\n" "Installing EmbyServer update (JSON):"
