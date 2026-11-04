@@ -40,6 +40,14 @@ Download the script and place it into a location of your choosing. As an example
 
     /homes/admin/scripts/bash/emby/syno.embyupdate/syno.embyupdate.sh
 
+**Quick install (SSH as root):**
+
+```bash
+mkdir -p /volume1/homes/admin/scripts/bash/emby
+curl -sL https://raw.githubusercontent.com/trailstack/syno.embyupdate/v1.0.0/syno.embyupdate.sh -o /volume1/homes/admin/scripts/bash/emby/syno.embyupdate.sh
+chmod +x /volume1/homes/admin/scripts/bash/emby/syno.embyupdate.sh
+```
+
 **Note:** Synology recommends that you disable the default "`admin`" account for security reasons. In these examples, the admin directory structure is just a script storage location. You can run the script from here even if you disable the "`admin`" account (which you really should).
 
 ### 2. Setup a Scheduled Task in the DSM
